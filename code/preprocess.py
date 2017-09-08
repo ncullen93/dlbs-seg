@@ -6,6 +6,8 @@ import os
 import numpy as np
 import pandas as pd
 
+from tqdm import tqdm
+
 import ants
 
 
@@ -28,10 +30,6 @@ def create_filemap(base_dir, save=True):
     """
     data_dir = os.path.join(base_dir, 'data')
     raw_data_dir = os.path.join(data_dir, 'raw')
-    proc_data_dir = os.path.join(data_dir, 'processed')
-
-    if not os.path.exists(proc_data_dir):
-        os.mkdir(proc_data_dir)
 
     # list all subjects in `images` directory
     raw_img_dir = os.path.join(raw_data_dir, 'images')
@@ -45,8 +43,8 @@ def create_filemap(base_dir, save=True):
     raw_seg_dir = os.path.join(raw_data_dir, 'segmentations')
     seg_subs = []
     for sub in os.listdir(raw_seg_dir):
-        if not sub.startswith('.'):
-            seg_subs.append(sub)
+        if (not sub.startswith('.')) and ('session' in sub):
+            seg_subs.append(sub.split('_')[0])
     seg_subs = np.asarray(seg_subs)
 
     # subjects who have T1s and segmentations
@@ -54,21 +52,22 @@ def create_filemap(base_dir, save=True):
                                  seg_subs.astype('int'))
     print('Found %i subjects w/ t1 and segs' % len(imgseg_subs))
 
-    # create t1 path
+    # create t1 path - this will make sure they are ordered correctly
     t1paths = ['images/00%i/session_1/anat_1/anat.nii.gz'% iss for iss in imgseg_subs]
     segpaths = ['segmentations/%i_session1_T1_BrainSegmentation.nii.gz' % iss for iss in imgseg_subs]
 
-    filemap = pd.DataFrame(np.vstack([t1paths,segpaths]), columns=['T1','T1-SEG'])
+    filemap = pd.DataFrame(np.vstack([t1paths,segpaths]).T, columns=['T1','T1-SEG'])
     filemap.index = imgseg_subs
 
-    filemap.to_csv(os.path.join(data_dir, 't1seg_filemap.csv'), index=True)
+    if save:
+        filemap.to_csv(os.path.join(data_dir, 't1seg_filemap.csv'), index=True)
     return filemap
 
 
 def _make_recursive_directories(base_dir, filepath):
     file_seps = filepath.split(os.sep)
-    for i in range(len(file_seps)-1):
-        new_dir = os.path.join(base_dir, file_seps)
+    for i in range(len(file_seps)):
+        new_dir = os.path.join(base_dir, '/'.join(file_seps[:i]))
         if not os.path.exists(new_dir):
             try:
                 os.mkdir(new_dir)
@@ -108,8 +107,8 @@ def preprocess_images(base_dir):
     if not os.path.exists(base_save_path):
         os.mkdir(base_save_path) 
 
-    t1_files = filemap['T1']
-    for t1_file in t1_files:
+    t1_files = filemap['T1'].values
+    for t1_file in tqdm(t1_files):
         # load image as float
         image = ants.image_read(os.path.join(base_load_path, t1_file), 
                                 pixeltype='float')
@@ -117,13 +116,20 @@ def preprocess_images(base_dir):
         image_mask = ants.get_mask(image)
 
         # truncate intensity and run N4 bias correction
-        image_n4 = ants.abp_n4(image, mask=image_mask)
+        image_n4 = ants.n4_bias_field_correction(image, mask=image_mask)
 
         # mask image
-        image_n4_skull = ants.mask_image(image_n4, image_n4_mask)
+        #image_n4_skull = ants.mask_image(image_n4, image_n4_mask)
 
         # make sure appropriate directories exist in preprocessed dir
         _make_recursive_directories(base_save_path, t1_file)
 
         # save image to preprocessed directory
-        ants.image_write(image_n4_skull, os.path.join(base_save_path, t1_file))
+        ants.image_write(image_n4, os.path.join(base_save_path, t1_file))
+
+
+if __name__=='__main__':
+    project_dir = '/home/ncullen/Desktop/projects/dlbs-seg/'
+    
+    create_filemap(project_dir)
+    preprocess_images(project_dir)
