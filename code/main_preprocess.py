@@ -3,6 +3,8 @@ Preprocess raw DLBS data
 """
 
 import os
+import shutil
+
 import numpy as np
 import pandas as pd
 
@@ -86,7 +88,7 @@ def preprocess_images(base_dir):
     This step consists of the following:
         - Intensity truncation
         - N4 Bias correction
-        - Quick skull stripping
+        - resample to 2 mm^3 voxel resolution
     
     Args : 
         base_dir : string   
@@ -100,7 +102,7 @@ def preprocess_images(base_dir):
 
     """
     # get filemap of all the images
-    filemap = create_filemap(base_dir, save=False)
+    filemap = pd.read_csv(os.path.join(base_dir, 'data/t1seg_filemap.csv'), index_col=0)
 
     base_load_path = os.path.join(base_dir, 'data/raw/')
     base_save_path = os.path.join(base_dir, 'data/preprocessed/')
@@ -108,28 +110,48 @@ def preprocess_images(base_dir):
         os.mkdir(base_save_path) 
 
     t1_files = filemap['T1'].values
-    for t1_file in tqdm(t1_files):
+    seg_files = filemap['T1-SEG'].values
+    for i in tqdm(range(len(t1_files))):
+        t1_file = t1_files[i]
+        seg_file = seg_files[i]
         # load image as float
         image = ants.image_read(os.path.join(base_load_path, t1_file), 
                                 pixeltype='float')
 
         image_mask = ants.get_mask(image)
 
-        # truncate intensity and run N4 bias correction
-        image_n4 = ants.n4_bias_field_correction(image, mask=image_mask)
+        # run N4 bias correction
+        image = ants.n4_bias_field_correction(image, mask=image_mask)
 
-        # mask image
-        #image_n4_skull = ants.mask_image(image_n4, image_n4_mask)
+        # downsample to 2mm^3 resolution
+        image = image.resample_image((2,2,2), interp_type=0)
 
-        # make sure appropriate directories exist in preprocessed dir
+        # save t1 image to preprocessed directory
         _make_recursive_directories(base_save_path, t1_file)
+        ants.image_write(image, os.path.join(base_save_path, t1_file))
+        np.save(os.path.join(base_save_path, t1_file.replace('.nii.gz','.npy')),
+                image.numpy().astype('float32'))
+        
+        # load and save seg file
+        seg_image = ants.image_read(os.path.join(base_load_path, seg_file))
+        seg_image = seg_image.resample_image((2,2,2), interp_type=1)
 
-        # save image to preprocessed directory
-        ants.image_write(image_n4, os.path.join(base_save_path, t1_file))
+        _make_recursive_directories(base_save_path, seg_file)
+        ants.image_write(seg_image, os.path.join(base_save_path, seg_file))
+        np.save(os.path.join(base_save_path, seg_file.replace('.nii.gz','.npy')),
+                seg_image.numpy().astype('uint8'))
 
+
+
+def finalize_images(base_dir):
+    """
+    Finalize images for training.
+
+    This takes the following steps:
+        - convert to numpy arrays
 
 if __name__=='__main__':
-    project_dir = '/home/ncullen/Desktop/projects/dlbs-seg/'
+    project_dir = '/users/ncullen/Desktop/projects/dlbs-seg/'
     
     create_filemap(project_dir)
     preprocess_images(project_dir)
