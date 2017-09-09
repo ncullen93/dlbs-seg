@@ -2,6 +2,7 @@
 Preprocess raw DLBS data 
 """
 
+import argparse
 import os
 import shutil
 
@@ -83,6 +84,25 @@ def _make_recursive_directories(base_dir, filepath):
             except:
                 pass
 
+def preprocess_single_subject(image, seg_image):
+    """
+    Takes a T1 and its segmentation, processes them, and returns 
+    the processed images
+
+    This is really the only thing that needs to be changed according
+    to the user's preferences for preprocessing
+    """
+    #image_mask = ants.get_mask(image)
+
+    # run N4 bias correction
+    image = ants.n4_bias_field_correction(image)#, mask=image_mask)
+
+    # downsample to 2mm^3 resolution
+    image = image.resample_image((2,2,2), interp_type=0)
+
+    seg_image = seg_image.resample_image((2,2,2), interp_type=1)
+    
+    return image, seg_image
 
 def preprocess_images(base_dir):
     """
@@ -113,11 +133,11 @@ def preprocess_images(base_dir):
     filemap = pd.read_csv(os.path.join(base_dir, 'data/t1seg_filemap.csv'), index_col=0)
 
     base_load_path = os.path.join(base_dir, 'data/raw/')
-    base_save_path = os.path.join(base_dir, 'data/preprocessed/')
+    #base_save_path = os.path.join(base_dir, 'data/preprocessed/')
     base_save_path_npy = os.path.join(base_dir,'data/preprocessed_npy/')
 
-    if not os.path.exists(base_save_path):
-        os.mkdir(base_save_path) 
+    #if not os.path.exists(base_save_path):
+    #    os.mkdir(base_save_path) 
 
     if not os.path.exists(base_save_path_npy):
         os.mkdir(base_save_path_npy) 
@@ -130,35 +150,33 @@ def preprocess_images(base_dir):
         # load image as float
         image = ants.image_read(os.path.join(base_load_path, t1_file), 
                                 pixeltype='float')
-
-        image_mask = ants.get_mask(image)
-
-        # run N4 bias correction
-        image = ants.n4_bias_field_correction(image, mask=image_mask)
-
-        # downsample to 2mm^3 resolution
-        image = image.resample_image((2,2,2), interp_type=0)
-
-        # save t1 image to preprocessed directory
-        _make_recursive_directories(base_save_path, t1_file)
-        _make_recursive_directories(base_save_path_npy, t1_file)
-        ants.image_write(image, os.path.join(base_save_path, t1_file))
-        np.save(os.path.join(base_save_path_npy, t1_file.replace('.nii.gz','.npy')),
-                image.numpy().astype('float32'))
-        
-        # load and save seg file
         seg_image = ants.image_read(os.path.join(base_load_path, seg_file))
-        seg_image = seg_image.resample_image((2,2,2), interp_type=1)
 
-        _make_recursive_directories(base_save_path, seg_file)
+        # ----------------------------------------------------------------
+        
+        image, seg_image = preprocess_single_subject(image, seg_image)
+
+        # -----------------------------------------------------------------
+        
+        # save t1 image to preprocessed directory
+        #_make_recursive_directories(base_save_path, t1_file)
+        _make_recursive_directories(base_save_path_npy, t1_file)
+        #ants.image_write(image, os.path.join(base_save_path, t1_file))
+        ants.image_write(image, os.path.join(base_save_path_npy, t1_file.replace('.nii.gz','.npy')))
+        
+        # save seg file
+        #_make_recursive_directories(base_save_path, seg_file)
         _make_recursive_directories(base_save_path_npy, seg_file)
-        ants.image_write(seg_image, os.path.join(base_save_path, seg_file))
-        np.save(os.path.join(base_save_path_npy, seg_file.replace('.nii.gz','.npy')),
-                seg_image.numpy().astype('uint8'))
+        #ants.image_write(seg_image, os.path.join(base_save_path, seg_file))
+        ants.image_write(seg_image, os.path.join(base_save_path_npy, seg_file.replace('.nii.gz', '.npy')))
+
 
 
 if __name__=='__main__':
     project_dir = '/users/ncullen/Desktop/projects/dlbs-seg/'
-    
+    parser = argparse.ArgumentParser(description='Process some integers.')
+    parser.add_argument('--project_dir',type=str, help='path to project directory')
+    args = parser.parse_args()
+    project_dir = args.project_dir
     create_filemap(project_dir)
     preprocess_images(project_dir)
