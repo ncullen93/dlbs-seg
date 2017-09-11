@@ -5,6 +5,7 @@ Preprocess raw DLBS data
 import argparse
 import os
 import shutil
+import gc
 
 import numpy as np
 import pandas as pd
@@ -104,6 +105,9 @@ def preprocess_single_subject(image, seg_image):
     
     return image, seg_image
 
+def read_image(filename):
+    return ants.image_read(filename,pixeltype=None)
+
 def preprocess_images(base_dir):
     """
     Minimal preprocessing of t1 brain images before training the 
@@ -148,32 +152,43 @@ def preprocess_images(base_dir):
         t1_file = t1_files[i]
         seg_file = seg_files[i]
         # load image as float
-        image = ants.image_read(os.path.join(base_load_path, t1_file), 
-                                pixeltype='float')
-        seg_image = ants.image_read(os.path.join(base_load_path, seg_file))
+        image = read_image(os.path.join(base_load_path, t1_file))
+        seg_image = read_image(os.path.join(base_load_path, seg_file))
+        #image = ants.image_read(os.path.join(base_load_path, t1_file))
+        #seg_image = ants.image_read(os.path.join(base_load_path, seg_file))
 
         # ----------------------------------------------------------------
         
-        image, seg_image = preprocess_single_subject(image, seg_image)
+        #image, seg_image = preprocss_single_subject(image, seg_image)
+        #image = ants.n4_bias_field_correction(image)#, mask=image_mask)
 
+        # downsample to 2mm^3 resolution
+        #image = image.resample_image((2,2,2), interp_type=0)
+
+        #seg_image = seg_image.resample_image((2,2,2), interp_type=1)
         # -----------------------------------------------------------------
         
         # save t1 image to preprocessed directory
         #_make_recursive_directories(base_save_path, t1_file)
-        _make_recursive_directories(base_save_path_npy, t1_file)
+        #_make_recursive_directories(base_save_path_npy, t1_file)
         #ants.image_write(image, os.path.join(base_save_path, t1_file))
-        ants.image_write(image, os.path.join(base_save_path_npy, t1_file.replace('.nii.gz','.npy')))
+        #ants.image_write(image, os.path.join(base_save_path_npy, t1_file.replace('.nii.gz','.npy')))
         
         # save seg file
         #_make_recursive_directories(base_save_path, seg_file)
-        _make_recursive_directories(base_save_path_npy, seg_file)
+        #_make_recursive_directories(base_save_path_npy, seg_file)
         #ants.image_write(seg_image, os.path.join(base_save_path, seg_file))
-        ants.image_write(seg_image, os.path.join(base_save_path_npy, seg_file.replace('.nii.gz', '.npy')))
+        #ants.image_write(seg_image, os.path.join(base_save_path_npy, seg_file.replace('.nii.gz', '.npy')))
 
+        # try this to mix memory leak
+        image._img = None
+        seg_image._img = None
+        del image, seg_image
+        gc.collect()
 
 
 if __name__=='__main__':
-    project_dir = '/users/ncullen/Desktop/projects/dlbs-seg/'
+    #project_dir = '/users/ncullen/Desktop/projects/dlbs-seg/'
     parser = argparse.ArgumentParser(description='Process some integers.')
     parser.add_argument('--project_dir',type=str, help='path to project directory')
     args = parser.parse_args()
